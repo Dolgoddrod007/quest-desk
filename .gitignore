@@ -1,0 +1,22 @@
+# Python / Django
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+db.sqlite3
+
+# Node / React (дублирование для надежности, если вдруг пакеты поставят в корень)
+node_modules/
+dist/
+build/
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
