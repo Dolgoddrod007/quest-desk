@@ -1,0 +1,102 @@
+import React, { useState } from 'react';
+import './Modal.css';
+const LoginModal = ({ isOpen, onClose, onLogin }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+
+    const result = onLogin(email, password);
+
+    if (result && !result.success) {
+      setError(result.message);
+      setIsLoading(false);
+    } else if (result && result.success) {
+      setIsLoading(false);
+      onClose(); // закрываем окно при успехе
+      setEmail('');
+      setPassword('');
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>
+            <i className="fas fa-sign-in-alt"></i> Вход в аккаунт
+          </h3>
+          <button className="modal-close" onClick={onClose}>
+            &times;
+          </button>
+        </div>
+
+        {error && <div className="error-message">{error}</div>}
+
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label>
+              <i className="fas fa-envelope"></i> Email
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="example@dnd.com"
+              required
+              autoFocus
+            />
+          </div>
+
+          <div className="form-group">
+            <label>
+              <i className="fas fa-lock"></i> Пароль
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••"
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={isLoading}
+            style={{ width: '100%', marginTop: '1rem' }}
+          >
+            {isLoading ? 'Вход...' : 'Войти'}
+          </button>
+        </form>
+
+        <div
+          className="demo-credentials"
+          style={{
+            marginTop: '1rem',
+            padding: '0.5rem',
+            background: 'rgba(42, 157, 143, 0.1)',
+            borderRadius: '8px',
+            fontSize: '0.8rem',
+          }}
+        >
+          <small>Тестовые данные:</small>
+          <br />
+          <small>Игрок: player@dnd.com / 1234</small>
+          <br />
+          <small>Мастер: master@dnd.com / 1234</small>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default LoginModal;
