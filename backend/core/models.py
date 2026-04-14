@@ -456,3 +456,20 @@ class NPCTemplate(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class UserStatsDaily(models.Model):
+    """Ежедневные агрегаты пользователей для админ-статистики."""
+    date = models.DateField(unique=True)
+    new_users_count = models.IntegerField(default=0)
+    total_users_count = models.IntegerField(default=0)
+    masters_count = models.IntegerField(default=0)
+    players_count = models.IntegerField(default=0)
+    calculated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'user_stats_daily'
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"{self.date}: +{self.new_users_count}, total {self.total_users_count}"

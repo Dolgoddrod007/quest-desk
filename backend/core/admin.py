@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import (
     User, Campaign, CampaignMember, Character, 
-    Note, Session, SessionAvailability, SessionLog, LogComment
+    Note, Session, SessionAvailability, SessionLog, LogComment, UserStatsDaily
 )
 
 
@@ -106,3 +106,38 @@ class LogCommentAdmin(admin.ModelAdmin):
     list_filter = ('created_at', 'log')
     search_fields = ('content', 'author__username')
     readonly_fields = ('id', 'created_at')
+
+
+@admin.register(UserStatsDaily)
+class UserStatsDailyAdmin(admin.ModelAdmin):
+    """Статистика пользователей + график в админке."""
+    list_display = ('date', 'new_users_count', 'total_users_count', 'masters_count', 'players_count', 'calculated_at')
+    readonly_fields = ('date', 'new_users_count', 'total_users_count', 'masters_count', 'players_count', 'calculated_at')
+    ordering = ('-date',)
+    changelist_template = 'admin/core/userstatsdaily/change_list.html'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        recent_stats = list(UserStatsDaily.objects.order_by('-date')[:90])
+        stats = list(reversed(recent_stats))
+        labels = [entry.date.strftime('%Y-%m-%d') for entry in stats]
+        new_users = [entry.new_users_count for entry in stats]
+        total_users = [entry.total_users_count for entry in stats]
+        latest_total = total_users[-1] if total_users else 0
+        latest_new = new_users[-1] if new_users else 0
+        seven_days_new = sum(new_users[-7:]) if new_users else 0
+        has_non_zero = any(value > 0 for value in new_users + total_users)
+        extra_context = extra_context or {}
+        extra_context['chart_labels'] = labels
+        extra_context['chart_new_users'] = new_users
+        extra_context['chart_total_users'] = total_users
+        extra_context['latest_total'] = latest_total
+        extra_context['latest_new'] = latest_new
+        extra_context['seven_days_new'] = seven_days_new
+        extra_context['has_non_zero'] = has_non_zero
+        return super().changelist_view(request, extra_context=extra_context)
