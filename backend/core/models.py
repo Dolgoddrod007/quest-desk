@@ -52,6 +52,7 @@ class User(AbstractUser):
     email = models.EmailField(unique=True, max_length=255)
     username = models.CharField(max_length=100, unique=True)
     avatar_url = models.URLField(blank=True, null=True)
+    role = models.CharField(max_length=50, choices=CampaignRole.choices, default='player')
     created_at = models.DateTimeField(auto_now_add=True)
 
     # Переопределяем поля для устранения конфликта related_name

@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Header from './components/Header';
-import Sidebar from './components/Sidebar';
-import SearchBar from './components/SearchBar';
+import ProtectedRoute from './components/ProtectedRoute';
 import HomePage from './pages/HomePage';
 import PartiesPage from './pages/PartiesPage';
 import CharacterPage from './pages/CharacterPage';
@@ -19,9 +18,9 @@ function AppContent() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showRegisterModal, setShowRegisterModal] = useState(false);
 
-  // Правильная передача аргументов в login/register
-  const handleLogin = (email, password) => login(email, password);
-  const handleRegister = (email, password, role) => register(email, password, role);
+  // Передача параметров в login/register
+  const handleLogin = (username, password) => login(username, password);
+  const handleRegister = (formData) => register(formData);
 
   return (
     <div className="app-container">
@@ -29,16 +28,35 @@ function AppContent() {
         onShowLogin={() => setShowLoginModal(true)}
         onShowRegister={() => setShowRegisterModal(true)}
       />
-      <SearchBar />
       <div className="app-main">
-        <Sidebar />
         <main className="content">
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/parties" element={<PartiesPage />} />
-            <Route path="/character" element={<CharacterPage />} />
-            <Route path="/master" element={<MasterPage />} />
-            <Route path="/scheduler" element={<SchedulerPage />} />
+            <Route
+              path="/character"
+              element={
+                <ProtectedRoute requiresPlayer={true}>
+                  <CharacterPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/master"
+              element={
+                <ProtectedRoute requiresMaster={true}>
+                  <MasterPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/scheduler"
+              element={
+                <ProtectedRoute requiresMaster={true}>
+                  <SchedulerPage />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/journal" element={<JournalPage />} />
           </Routes>
         </main>

@@ -23,8 +23,19 @@ class UserRegisterSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
+        # Извлекаем пароли и avatar_url перед созданием пользователя
+        password = validated_data.pop('password')
         validated_data.pop('password_confirm')
-        user = User.objects.create_user(**validated_data)
+        avatar_url = validated_data.pop('avatar_url', None)
+        
+        # Создаём пользователя
+        user = User.objects.create_user(password=password, **validated_data)
+        
+        # Устанавливаем avatar_url если задан
+        if avatar_url:
+            user.avatar_url = avatar_url
+            user.save()
+        
         return user
 
 
@@ -37,6 +48,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'username': self.user.username,
             'email': self.user.email,
             'avatar_url': self.user.avatar_url,
+            'role': self.user.role,
         }
         return data
 
@@ -45,7 +57,7 @@ class UserSerializer(serializers.ModelSerializer):
     """Сериализатор пользователя"""
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'avatar_url', 'created_at']
+        fields = ['id', 'username', 'email', 'avatar_url', 'role', 'created_at']
         read_only_fields = ['id', 'created_at']
 
 
@@ -92,8 +104,8 @@ class CharacterSerializer(serializers.ModelSerializer):
     """Сериализатор персонажа с авторасчётом модификаторов"""
     modifiers = serializers.SerializerMethodField()
     user = UserSerializer(read_only=True)
-    user_id = serializers.UUIDField(write_only=True)
-    campaign_id = serializers.UUIDField(write_only=True)
+    user_id = serializers.UUIDField(write_only=True, required=False)
+    campaign_id = serializers.UUIDField(write_only=True, required=False)
 
     class Meta:
         model = Character
@@ -114,18 +126,32 @@ class CharacterSerializer(serializers.ModelSerializer):
         return modifiers
 
     def create(self, validated_data):
-        user_id = validated_data.pop('user_id')
-        campaign_id = validated_data.pop('campaign_id')
+        user_id = validated_data.pop('user_id', None)
+        campaign_id = validated_data.pop('campaign_id', None)
+        if not user_id:
+            raise serializers.ValidationError({'user_id': ['Это поле обязательно.']})
+        if not campaign_id:
+            raise serializers.ValidationError({'campaign_id': ['Это поле обязательно.']})
         validated_data['user'] = User.objects.get(id=user_id)
         validated_data['campaign'] = Campaign.objects.get(id=campaign_id)
         return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        # Для редактирования позволяем не передавать user_id/campaign_id.
+        user_id = validated_data.pop('user_id', None)
+        campaign_id = validated_data.pop('campaign_id', None)
+        if user_id:
+            instance.user = User.objects.get(id=user_id)
+        if campaign_id:
+            instance.campaign = Campaign.objects.get(id=campaign_id)
+        return super().update(instance, validated_data)
 
 
 # Заметки
 class NoteSerializer(serializers.ModelSerializer):
     """Сериализатор заметок (квесты, NPC, личные заметки)"""
     author = UserSerializer(read_only=True)
-    author_id = serializers.UUIDField(write_only=True)
+    author_id = serializers.UUIDField(write_only=True, required=False)
     campaign_id = serializers.UUIDField(write_only=True)
 
     class Meta:
@@ -134,11 +160,15 @@ class NoteSerializer(serializers.ModelSerializer):
             'id', 'campaign', 'campaign_id', 'author', 'author_id', 'type', 
             'title', 'content', 'is_public', 'status', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'author', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'campaign', 'author', 'created_at', 'updated_at']
 
     def create(self, validated_data):
-        author_id = validated_data.pop('author_id')
+        author_id = validated_data.pop('author_id', None)
         campaign_id = validated_data.pop('campaign_id')
+        if not author_id and self.context.get('request'):
+            author_id = self.context['request'].user.id
+        if not author_id:
+            raise serializers.ValidationError({'author_id': ['Это поле обязательно.']})
         validated_data['author'] = User.objects.get(id=author_id)
         validated_data['campaign'] = Campaign.objects.get(id=campaign_id)
         return super().create(validated_data)
@@ -172,7 +202,7 @@ class SessionSerializer(serializers.ModelSerializer):
             'id', 'campaign', 'campaign_id', 'title', 'description', 'start_time',
             'duration_minutes', 'status', 'availabilities', 'created_at'
         ]
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = ['id', 'campaign', 'availabilities', 'created_at']
 
     def create(self, validated_data):
         campaign_id = validated_data.pop('campaign_id')

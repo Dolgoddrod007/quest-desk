@@ -1,4 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
+import axiosInstance from '../api/axiosInstance';
 
 const AuthContext = createContext();
 
@@ -6,50 +7,128 @@ export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   // Загрузка текущего пользователя при старте
   useEffect(() => {
-    const savedUser = localStorage.getItem('dnd_current_user');
-    if (savedUser) {
-      try {
-        setCurrentUser(JSON.parse(savedUser));
-      } catch (e) {
-        console.error(e);
+    const loadUser = async () => {
+      const accessToken = localStorage.getItem('access_token');
+      // Если уже есть пользователь в памяти, не загружаем снова
+      if (accessToken && !currentUser) {
+        setLoading(true);
+        try {
+          try {
+            const response = await axiosInstance.get('/users/me/');
+            setCurrentUser(response.data);
+          } catch (primaryErr) {
+            // Backward compatibility if backend still exposes old route.
+            if (primaryErr.response?.status === 404) {
+              const fallbackResponse = await axiosInstance.get('/auth/me/');
+              setCurrentUser(fallbackResponse.data);
+            } else {
+              throw primaryErr;
+            }
+          }
+        } catch (err) {
+          console.error('Ошибка загрузки пользователя:', err);
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+        } finally {
+          setLoading(false);
+        }
       }
-    }
+    };
+
+    loadUser();
   }, []);
 
-  // Регистрация — всегда читаем свежих пользователей из localStorage
-  const register = (email, password, role) => {
-    const stored = localStorage.getItem('dnd_users');
-    const currentUsers = stored ? JSON.parse(stored) : [];
-    const existing = currentUsers.find(u => u.email === email);
-    if (existing) {
-      return { success: false, message: 'Пользователь с таким email уже существует' };
+  // Регистрация
+  const register = async (formData) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await axiosInstance.post('/auth/register/', {
+        username: formData.username,
+        email: formData.email,
+        password: formData.password,
+        password_confirm: formData.password_confirm,
+        avatar_url: formData.avatar_url || null,
+      });
+
+      const loginResponse = await axiosInstance.post('/auth/login/', {
+        username: formData.username,
+        password: formData.password,
+      });
+
+      const { access, refresh, user } = loginResponse.data;
+
+      localStorage.setItem('access_token', access);
+      localStorage.setItem('refresh_token', refresh);
+
+      setCurrentUser(user);
+
+      return { success: true, data: user };
+    } catch (err) {
+      console.error('Registration error:', err.response?.data);
+
+      let message = 'Ошибка при регистрации';
+      const errorData = err.response?.data;
+
+      if (typeof errorData === 'string') {
+        message = errorData;
+      } else if (errorData?.message) {
+        message = errorData.message;
+      } else if (typeof errorData === 'object') {
+        const firstError = Object.values(errorData)[0];
+        if (Array.isArray(firstError)) {
+          message = firstError[0];
+        } else if (typeof firstError === 'string') {
+          message = firstError;
+        }
+      }
+
+      setError(message);
+      return { success: false, message };
+    } finally {
+      setLoading(false);
     }
-    const newUser = { email, password, role };
-    const updatedUsers = [...currentUsers, newUser];
-    localStorage.setItem('dnd_users', JSON.stringify(updatedUsers));
-    return { success: true };
   };
 
-  // Логин — тоже читаем напрямую из localStorage
-  const login = (email, password) => {
-    const stored = localStorage.getItem('dnd_users');
-    const users = stored ? JSON.parse(stored) : [];
-    const user = users.find(u => u.email === email && u.password === password);
-    if (user) {
-      const userData = { email: user.email, role: user.role };
-      setCurrentUser(userData);
-      localStorage.setItem('dnd_current_user', JSON.stringify(userData));
-      return { success: true };
+  // Логин
+  const login = async (username, password) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await axiosInstance.post('/auth/login/', {
+        username,
+        password,
+      });
+
+      const { access, refresh, user } = response.data;
+
+      localStorage.setItem('access_token', access);
+      localStorage.setItem('refresh_token', refresh);
+
+      setCurrentUser(user);
+      return { success: true, data: user };
+    } catch (err) {
+      const message = err.response?.data?.detail ||
+        err.response?.data?.message ||
+        'Неверное имя пользователя или пароль';
+      setError(message);
+      return { success: false, message };
+    } finally {
+      setLoading(false);
     }
-    return { success: false, message: 'Неверный email или пароль' };
   };
 
+  // Выход
   const logout = () => {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
     setCurrentUser(null);
-    localStorage.removeItem('dnd_current_user');
+    window.location.href = '/'; // Редирект на главную
   };
 
   const value = {
@@ -58,8 +137,13 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     isAuthenticated: !!currentUser,
-    isMaster: currentUser?.role === 'master',
+    loading,
+    error,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
 };

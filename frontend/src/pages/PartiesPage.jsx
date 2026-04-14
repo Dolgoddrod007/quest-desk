@@ -1,58 +1,66 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { useCampaigns } from '../hooks/useApi';
 
 const PartiesPage = () => {
-  const [parties, setParties] = useState([]);
+  const { currentUser } = useAuth();
+  const { allCampaigns, loading, fetchAllCampaigns, fetchCampaigns, createCampaign, joinCampaignByCode } = useCampaigns();
+
+  const [searchTerm, setSearchTerm] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
+  const [selectedCampaign, setSelectedCampaign] = useState(null);
   const [joinCode, setJoinCode] = useState('');
-  const [newPartyName, setNewPartyName] = useState('');
-  const [newPartyDesc, setNewPartyDesc] = useState('');
+  const [newCampaignName, setNewCampaignName] = useState('');
+  const [newCampaignDesc, setNewCampaignDesc] = useState('');
+  const [error, setError] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem('dnd_parties');
-    if (saved) {
-      setParties(JSON.parse(saved));
-    } else {
-      const defaultParties = [
-        { id: 1, name: 'Подземье Фандалина', desc: 'Поиски рудника', master: 'master@dnd.com', members: 4, inviteCode: 'FAN123' },
-        { id: 2, name: 'Врата Балдура', desc: 'Тени в порту', master: 'admin@camp.ru', members: 5, inviteCode: 'BALDUR' }
-      ];
-      setParties(defaultParties);
-      localStorage.setItem('dnd_parties', JSON.stringify(defaultParties));
-    }
+    fetchAllCampaigns();
   }, []);
 
-  const createParty = () => {
-    if (!newPartyName.trim()) return;
-    const newParty = {
-      id: Date.now(),
-      name: newPartyName,
-      desc: newPartyDesc || 'Новая партия',
-      master: 'Мастер',
-      members: 1,
-      inviteCode: Math.random().toString(36).substring(2, 8).toUpperCase()
-    };
-    const updated = [...parties, newParty];
-    setParties(updated);
-    localStorage.setItem('dnd_parties', JSON.stringify(updated));
-    setShowCreateModal(false);
-    setNewPartyName('');
-    setNewPartyDesc('');
-  };
+  // Фильтруем кампании по поиску
+  const filteredCampaigns = Array.isArray(allCampaigns)
+    ? allCampaigns.filter(campaign =>
+      campaign.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (campaign.description && campaign.description.toLowerCase().includes(searchTerm.toLowerCase()))
+    )
+    : [];
 
-  const joinParty = () => {
-    const party = parties.find(p => p.inviteCode === joinCode.toUpperCase());
-    if (party) {
-      alert(`Вы присоединились к партии "${party.name}"`);
-      const updated = parties.map(p =>
-        p.id === party.id ? { ...p, members: p.members + 1 } : p
-      );
-      setParties(updated);
-      localStorage.setItem('dnd_parties', JSON.stringify(updated));
-      setJoinCode('');
-      setShowJoinModal(false);
-    } else {
-      alert('Неверный код приглашения');
+  const handleCreateCampaign = async () => {
+    if (!currentUser) {
+      setError('Пожалуйста, авторизуйтесь чтобы создать кампанию');
+      setShowCreateModal(false);
+      return;
+    }
+
+    if (!newCampaignName.trim()) {
+      setError('Имя кампании обязательно');
+      return;
+    }
+
+    setIsCreating(true);
+    setError('');
+
+    try {
+      await createCampaign({
+        name: newCampaignName,
+        description: newCampaignDesc || '',
+        master_id: currentUser.id
+      });
+
+      setNewCampaignName('');
+      setNewCampaignDesc('');
+      setShowCreateModal(false);
+      fetchCampaigns();
+      fetchAllCampaigns();
+    } catch (err) {
+      setError('Ошибка при создании кампании');
+      console.error(err);
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -61,7 +69,38 @@ const PartiesPage = () => {
     alert('Код скопирован!');
   };
 
-  // Стили для кастомной модалки
+  const openJoinModal = (campaign) => {
+    setSelectedCampaign(campaign);
+    setJoinCode('');
+    setError('');
+    setShowJoinModal(true);
+  };
+
+  const handleJoinCampaign = async () => {
+    if (!selectedCampaign) return;
+    if (!joinCode.trim()) {
+      setError('Введите код приглашения');
+      return;
+    }
+
+    setIsJoining(true);
+    setError('');
+    try {
+      await joinCampaignByCode({
+        campaignId: selectedCampaign.id,
+        inviteCode: joinCode.trim(),
+      });
+      setShowJoinModal(false);
+      fetchAllCampaigns();
+      fetchCampaigns();
+    } catch (err) {
+      const message = err.response?.data?.detail || 'Не удалось присоединиться к кампании';
+      setError(message);
+    } finally {
+      setIsJoining(false);
+    }
+  };
+
   const modalOverlayStyle = {
     position: 'fixed',
     top: 0,
@@ -88,111 +127,182 @@ const PartiesPage = () => {
   return (
     <>
       <div className="section-header">
-        <h2>Все партии</h2>
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <button
-            style={{ background: 'transparent', border: '1px solid #2a9d8f', color: '#c6edff', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer' }}
-            onClick={() => setShowJoinModal(true)}
-          >
-            <i className="fas fa-sign-in-alt"></i> Вступить по коду
-          </button>
+        <h2>Все кампании</h2>
+        {currentUser?.role === 'master' ? (
           <button
             style={{ background: '#2a9d8f', color: '#0c1a1f', border: 'none', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer' }}
             onClick={() => setShowCreateModal(true)}
           >
-            <i className="fas fa-plus"></i> Создать партию
+            <i className="fas fa-plus"></i> Создать кампанию
           </button>
-        </div>
+        ) : (
+          <span style={{ color: '#999', fontSize: '0.9rem' }}>
+            Только мастера могут создавать кампании
+          </span>
+        )}
       </div>
 
-      <div className="grid-2">
-        {parties.map(party => (
-          <div key={party.id} className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0 }}>{party.name}</h3>
-              <i className="fas fa-users"></i>
+      {/* Поле поиска */}
+      <div style={{ marginBottom: '1.5rem' }}>
+        <input
+          type="text"
+          placeholder="Поиск кампаний по названию или описанию..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          style={{
+            width: '100%',
+            padding: '0.8rem 1.2rem',
+            borderRadius: '40px',
+            border: '1px solid #2a9d8f',
+            background: '#0f1a27',
+            color: 'white',
+            fontSize: '1rem',
+            boxSizing: 'border-box'
+          }}
+        />
+      </div>
+
+      {loading && <div className="card">Загрузка кампаний...</div>}
+
+      {!Array.isArray(allCampaigns) && !loading && (
+        <div className="card" style={{ textAlign: 'center', color: '#ff6b6b' }}>
+          ❌ Ошибка загрузки кампаний. Проверьте консоль.
+        </div>
+      )}
+
+      {Array.isArray(allCampaigns) && allCampaigns.length === 0 && !loading && (
+        <div className="card" style={{ textAlign: 'center', color: '#9ab3d0' }}>
+          🎭 Нет кампаний. Создайте первую!
+        </div>
+      )}
+
+      {searchTerm && filteredCampaigns.length === 0 && Array.isArray(allCampaigns) && (
+        <div className="card" style={{ textAlign: 'center', color: '#9ab3d0' }}>
+          Кампании не найдены по запросу "{searchTerm}"
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1.5rem' }}>
+        {Array.isArray(allCampaigns) && filteredCampaigns.map(campaign => {
+          const isMember = Array.isArray(campaign.members)
+            ? campaign.members.some(member => member.user?.id === currentUser?.id)
+            : false;
+          const isCreatorMaster = campaign.master?.id === currentUser?.id;
+          const canCopyCode = isMember || isCreatorMaster;
+          const canJoinCampaign = !isMember && currentUser?.role === 'player';
+
+          return (
+          <div key={campaign.id} className="card" style={{ cursor: 'pointer' }}>
+            <h3>{campaign.name}</h3>
+            <p style={{ color: '#9ab3d0', marginBottom: '1rem' }}>{campaign.description || 'Без описания'}</p>
+            <div style={{ fontSize: '0.85rem', color: '#7a9fb0', marginBottom: '1rem' }}>
+              <div><strong>Мастер:</strong> {campaign.master?.username || 'Unknown'}</div>
+              <div><strong>Участников:</strong> {campaign.members?.length || 0}</div>
+              <div><strong>Код:</strong> {canCopyCode ? campaign.invite_code : 'Скрыт'}</div>
             </div>
-            <p style={{ color: '#9ab3d0' }}>{party.desc}</p>
-            <p><strong>Мастер:</strong> {party.master}</p>
-            <p><strong>Участников:</strong> {party.members}</p>
-            <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
+            <div style={{ display: 'flex', gap: '0.6rem' }}>
               <button
-                style={{ background: '#2d4b5a', color: 'white', border: '1px solid #3e6a7c', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer' }}
-                onClick={() => copyInvite(party.inviteCode)}
+                style={{ background: canCopyCode ? '#2a9d8f' : '#2d4b5a', color: canCopyCode ? '#0c1a1f' : '#cfe8f5', border: 'none', padding: '0.5rem', borderRadius: '8px', cursor: canCopyCode ? 'pointer' : 'default', width: '100%' }}
+                onClick={() => canCopyCode && copyInvite(campaign.invite_code)}
+                disabled={!canCopyCode}
               >
-                <i className="fas fa-link"></i> Код
+                <i className="fas fa-copy"></i> {canCopyCode ? 'Скопировать код' : 'Код недоступен'}
               </button>
               <button
-                style={{ background: '#2a9d8f', color: '#0c1a1f', border: 'none', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer' }}
-                onClick={() => setShowJoinModal(true)}
+                style={{ background: !canJoinCampaign ? '#2d4b5a' : '#2a9d8f', color: !canJoinCampaign ? '#cfe8f5' : '#0c1a1f', border: 'none', padding: '0.5rem', borderRadius: '8px', cursor: canJoinCampaign ? 'pointer' : 'default', width: '100%' }}
+                onClick={() => canJoinCampaign && openJoinModal(campaign)}
+                disabled={!canJoinCampaign}
               >
-                <i className="fas fa-door-open"></i> Войти
+                {isMember ? 'Вы участник' : (currentUser?.role === 'master' ? 'Мастеру недоступно' : 'Присоединиться')}
               </button>
             </div>
           </div>
-        ))}
+        )})}
       </div>
 
-      {/* Кастомная модалка создания партии */}
+      {/* Modal для создания */}
       {showCreateModal && (
         <div style={modalOverlayStyle} onClick={() => setShowCreateModal(false)}>
           <div style={modalCardStyle} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginBottom: '1.5rem', color: '#6ec8e0' }}>Создать партию</h3>
-            <label>Название партии *</label>
-            <input
-              type="text"
-              value={newPartyName}
-              onChange={(e) => setNewPartyName(e.target.value)}
-              style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem', borderRadius: '8px', background: '#0f1a27', border: '1px solid #2a9d8f', color: 'white' }}
-            />
-            <label>Описание</label>
-            <textarea
-              value={newPartyDesc}
-              onChange={(e) => setNewPartyDesc(e.target.value)}
-              rows="2"
-              style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem', borderRadius: '8px', background: '#0f1a27', border: '1px solid #2a9d8f', color: 'white' }}
-            ></textarea>
-            <button
-              onClick={createParty}
-              style={{ background: '#2a9d8f', color: '#0c1a1f', border: 'none', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer', width: '100%' }}
-            >
-              Создать
-            </button>
-            <button
-              onClick={() => setShowCreateModal(false)}
-              style={{ marginTop: '1rem', background: 'transparent', border: '1px solid #2a9d8f', color: '#c6edff', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer', width: '100%' }}
-            >
-              Отмена
-            </button>
+            <h3>Создать новую кампанию</h3>
+            {error && <div className="error-message">{error}</div>}
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label>Названиекампании</label>
+              <input
+                type="text"
+                value={newCampaignName}
+                onChange={(e) => setNewCampaignName(e.target.value)}
+                placeholder="Название кампании"
+                style={{ width: '100%', marginTop: '0.5rem' }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label>Описание (опционально)</label>
+              <textarea
+                value={newCampaignDesc}
+                onChange={(e) => setNewCampaignDesc(e.target.value)}
+                placeholder="Описание кампании"
+                rows="3"
+                style={{ width: '100%', marginTop: '0.5rem' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <button
+                className="btn btn-primary"
+                onClick={handleCreateCampaign}
+                disabled={isCreating}
+                style={{ flex: 1 }}
+              >
+                {isCreating ? 'Создание...' : 'Создать'}
+              </button>
+              <button
+                className="btn"
+                onClick={() => setShowCreateModal(false)}
+                style={{ flex: 1 }}
+              >
+                Отмена
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Кастомная модалка вступления */}
       {showJoinModal && (
         <div style={modalOverlayStyle} onClick={() => setShowJoinModal(false)}>
           <div style={modalCardStyle} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginBottom: '1.5rem', color: '#6ec8e0' }}>Вступить в партию</h3>
-            <label>Введите код-приглашение</label>
+            <h3>Присоединиться к кампании</h3>
+            <p style={{ color: '#9ab3d0', marginBottom: '1rem' }}>
+              Кампания: <strong>{selectedCampaign?.name}</strong>
+            </p>
+            {error && <div className="error-message">{error}</div>}
+            <label>Введите код приглашения</label>
             <input
               type="text"
-              placeholder="Например: FAN123"
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value)}
-              style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem', borderRadius: '8px', background: '#0f1a27', border: '1px solid #2a9d8f', color: 'white' }}
+              placeholder="Код от мастера"
+              style={{ width: '100%', marginTop: '0.5rem', marginBottom: '1rem' }}
             />
-            <button
-              onClick={joinParty}
-              style={{ background: '#2a9d8f', color: '#0c1a1f', border: 'none', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer', width: '100%' }}
-            >
-              Присоединиться
-            </button>
-            <button
-              onClick={() => setShowJoinModal(false)}
-              style={{ marginTop: '1rem', background: 'transparent', border: '1px solid #2a9d8f', color: '#c6edff', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer', width: '100%' }}
-            >
-              Отмена
-            </button>
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <button
+                className="btn btn-primary"
+                onClick={handleJoinCampaign}
+                disabled={isJoining}
+                style={{ flex: 1 }}
+              >
+                {isJoining ? 'Проверка...' : 'Вступить'}
+              </button>
+              <button
+                className="btn"
+                onClick={() => setShowJoinModal(false)}
+                style={{ flex: 1 }}
+              >
+                Отмена
+              </button>
+            </div>
           </div>
         </div>
       )}
