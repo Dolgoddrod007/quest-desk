@@ -7,13 +7,16 @@ const Header = ({ onShowLogin, onShowRegister }) => {
   const location = useLocation();
 
   const navItems = [
-    { path: '/', label: 'Главная', icon: 'fas fa-home' },
-    { path: '/parties', label: 'Партии', icon: 'fas fa-users' },
-    { path: '/character', label: 'Персонаж', icon: 'fas fa-user' },
-    { path: '/master', label: 'Мастерская', icon: 'fas fa-dice-d20' },
-    { path: '/scheduler', label: 'Планировщик', icon: 'fas fa-calendar' },
-    { path: '/journal', label: 'Журнал', icon: 'fas fa-book' },
+    { path: '/', label: 'Главная', icon: 'fas fa-home', requiresMaster: false, requiresPlayer: false },
+    { path: '/parties', label: 'Партии', icon: 'fas fa-users', requiresMaster: false, requiresPlayer: false },
+    { path: '/character', label: 'Персонаж', icon: 'fas fa-user', requiresMaster: false, requiresPlayer: true },
+    { path: '/master', label: 'Мастерская', icon: 'fas fa-dice-d20', requiresMaster: true },
+    { path: '/scheduler', label: 'Планировщик', icon: 'fas fa-calendar', requiresMaster: true },
+    { path: '/journal', label: 'Журнал', icon: 'fas fa-book', requiresMaster: false, requiresPlayer: false },
   ];
+
+  // Проверяем если мастер (пока проверяем по упрощённой логике)
+  const isMaster = currentUser?.role === 'master';
 
   return (
     <header
@@ -28,41 +31,31 @@ const Header = ({ onShowLogin, onShowRegister }) => {
         borderBottom: '2px solid #2e4d5e',
       }}
     >
-      <div
-        className="logo"
-        style={{
-          fontSize: '2rem',
-          fontWeight: 800,
-          background: 'linear-gradient(135deg, #6ec8e0, #3199b3)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          cursor: 'pointer',
-        }}
-      >
-        D&D ПАРТИИ
-      </div>
 
       <div className="nav-links" style={{ display: 'flex', gap: '2.5rem', fontWeight: 600 }}>
-        {navItems.map((item) => (
-          <Link
-            key={item.path}
-            to={item.path}
-            style={{
-              color: '#b7d9f0',
-              textDecoration: 'none',
-              fontSize: '1.1rem',
-              transition: '0.2s',
-              padding: '0.3rem 0',
-              borderBottom:
-                location.pathname === item.path ? '2px solid #6ec8e0' : '2px solid transparent',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-            }}
-          >
-            <i className={item.icon}></i> {item.label}
-          </Link>
-        ))}
+        {navItems
+          .filter(item => (!item.requiresMaster || isMaster) && (!item.requiresPlayer || !isMaster))
+          .map((item) => (
+            <Link
+              key={item.path}
+              to={item.path}
+              style={{
+                color: '#b7d9f0',
+                textDecoration: 'none',
+                fontSize: '1.1rem',
+                transition: '0.2s',
+                padding: '0.3rem 0',
+                borderBottom:
+                  location.pathname === item.path ? '2px solid #6ec8e0' : '2px solid transparent',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginTop: '10px',
+              }}
+            >
+              <i className={item.icon}></i> {item.label}
+            </Link>
+          ))}
       </div>
 
       <div className="user-bar" style={{ display: 'flex', gap: '0.7rem', alignItems: 'center' }}>
@@ -74,6 +67,7 @@ const Header = ({ onShowLogin, onShowRegister }) => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
+                marginTop: '15px',
               }}
             >
               <i className="fas fa-user-circle"></i>
@@ -92,7 +86,7 @@ const Header = ({ onShowLogin, onShowRegister }) => {
             <button
               className="btn"
               onClick={logout}
-              style={{ background: 'none', border: '1px solid #6ec8e0', color: '#6ec8e0' }}
+              style={{ background: 'none', border: '1px solid #6ec8e0', color: '#6ec8e0', marginTop: '15px' }}
             >
               <i className="fas fa-sign-out-alt"></i> Выйти
             </button>

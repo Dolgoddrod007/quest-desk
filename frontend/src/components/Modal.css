@@ -297,7 +297,6 @@
 .modal-card::-webkit-scrollbar-thumb:hover {
     background: #3fb3a5;
 }
-
 @media (max-width: 600px) {
     .modal-card {
         padding: 1.5rem;

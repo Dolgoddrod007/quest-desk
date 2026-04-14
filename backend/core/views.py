@@ -1,6 +1,7 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth import get_user_model
 from .models import (
@@ -49,6 +50,31 @@ class UserViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # Пользователь видит только себя
         return User.objects.filter(id=self.request.user.id)
+    
+    @action(detail=False, methods=['get'])
+    def me(self, request):
+        """Получить данные текущего пользователя"""
+        serializer = self.get_serializer(request.user)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'])
+    def become_master(self, request):
+        """Запрос на получение роли мастера"""
+        user = request.user
+        if user.role == 'master':
+            return Response(
+                {'message': 'Вы уже являетесь мастером'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user.role = 'master'
+        user.save()
+        
+        serializer = self.get_serializer(user)
+        return Response(
+            {'message': 'Вы получили роль мастера!', 'user': serializer.data},
+            status=status.HTTP_200_OK
+        )
 
 
 # Кампании
@@ -66,7 +92,72 @@ class CampaignViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         # Автоматически устанавливаем текущего пользователя как мастера
+        if self.request.user.role != 'master':
+            raise permissions.PermissionDenied("Только мастер может создавать кампании")
         serializer.save(master_id=self.request.user.id)
+
+    @action(detail=False, methods=['get'], url_path='all')
+    def all_campaigns(self, request):
+        """Список всех кампаний для раздела поиска/обзора."""
+        queryset = Campaign.objects.all().order_by('-created_at')
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'], url_path='join-by-code')
+    def join_by_code(self, request):
+        """Присоединение к кампании по invite коду."""
+        invite_code = (request.data.get('invite_code') or '').strip()
+        campaign_id = request.data.get('campaign_id')
+
+        if not invite_code:
+            return Response(
+                {'detail': 'invite_code обязателен'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            campaign = Campaign.objects.get(invite_code=invite_code)
+        except Campaign.DoesNotExist:
+            return Response(
+                {'detail': 'Кампания с таким кодом не найдена'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if campaign_id and str(campaign.id) != str(campaign_id):
+            return Response(
+                {'detail': 'Код не соответствует выбранной кампании'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        existing_member = CampaignMember.objects.filter(
+            campaign=campaign,
+            user=request.user
+        ).first()
+        if existing_member:
+            return Response(
+                {'detail': 'Вы уже состоите в этой кампании'},
+                status=status.HTTP_200_OK
+            )
+
+        if request.user.role == 'master':
+            return Response(
+                {'detail': 'Другие мастера не могут вступать в чужие кампании'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        CampaignMember.objects.create(
+            campaign=campaign,
+            user=request.user,
+            role='player'
+        )
+        return Response(
+            {'detail': 'Вы успешно присоединились к кампании'},
+            status=status.HTTP_201_CREATED
+        )
 
 
 class CampaignMemberViewSet(viewsets.ModelViewSet):
@@ -107,6 +198,8 @@ class CharacterViewSet(viewsets.ModelViewSet):
         campaign = Campaign.objects.get(id=campaign_id)
         if not campaign.members.filter(user=self.request.user).exists():
             raise permissions.PermissionDenied("Вы не участник этой кампании")
+        if Character.objects.filter(campaign_id=campaign_id, user=self.request.user).exists():
+            raise ValidationError({"campaign_id": ["В этой кампании у вас уже есть персонаж"]})
         serializer.save(user_id=self.request.user.id)
 
 
@@ -120,24 +213,16 @@ class NoteViewSet(viewsets.ModelViewSet):
         user = self.request.user
         campaign_id = self.request.query_params.get('campaign_id')
         note_type = self.request.query_params.get('type')
-        
-        queryset = Note.objects.all()
-        
+
+        # В журнале и API заметок пользователь видит только свои записи.
+        queryset = Note.objects.filter(author=user)
+
         if campaign_id:
             queryset = queryset.filter(campaign_id=campaign_id)
-        
-        # Мастер видит всё, игрок только публичные заметки
-        if not queryset.filter(campaign__master=user).exists():
-            # Проверка для каждой кампании отдельно
-            filtered = []
-            for note in queryset:
-                if note.campaign.master == user or note.is_public:
-                    filtered.append(note.id)
-            queryset = queryset.filter(id__in=filtered)
-        
+
         if note_type:
             queryset = queryset.filter(type=note_type)
-        
+
         return queryset
     
     def perform_create(self, serializer):
@@ -151,10 +236,19 @@ class SessionViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        campaign_id = self.request.query_params.get('campaign_id')
-        if campaign_id:
-            return Session.objects.filter(campaign_id=campaign_id)
-        return Session.objects.none()
+        user = self.request.user
+        member_queryset = Session.objects.filter(campaign__members__user=user).distinct()
+        master_queryset = Session.objects.filter(campaign__master=user)
+
+        # Для list оставляем фильтрацию по выбранной кампании.
+        if self.action == 'list':
+            campaign_id = self.request.query_params.get('campaign_id')
+            if campaign_id:
+                return member_queryset.filter(campaign_id=campaign_id)
+            return Session.objects.none()
+
+        # Для detail-операций (retrieve/update/destroy) нужен доступ по id.
+        return master_queryset
     
     def perform_create(self, serializer):
         # Только мастер может создавать сессии
@@ -162,6 +256,11 @@ class SessionViewSet(viewsets.ModelViewSet):
         if campaign.master != self.request.user:
             raise permissions.PermissionDenied("Только мастер может создавать сессии")
         serializer.save()
+
+    def perform_destroy(self, instance):
+        if instance.campaign.master != self.request.user:
+            raise permissions.PermissionDenied("Только мастер может удалять сессии")
+        instance.delete()
 
 
 class SessionAvailabilityViewSet(viewsets.ModelViewSet):

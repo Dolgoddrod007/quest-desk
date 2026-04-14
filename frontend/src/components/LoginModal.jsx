@@ -1,28 +1,32 @@
 import React, { useState } from 'react';
 import './Modal.css';
 const LoginModal = ({ isOpen, onClose, onLogin }) => {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
-    const result = onLogin(email, password);
+    try {
+      const result = await onLogin(username, password);
 
-    if (result && !result.success) {
-      setError(result.message);
+      if (result && !result.success) {
+        setError(result.message || 'Ошибка входа');
+      } else if (result && result.success) {
+        onClose();
+        setUsername('');
+        setPassword('');
+      }
+    } catch (err) {
+      setError(err.message || 'Произошла ошибка');
+    } finally {
       setIsLoading(false);
-    } else if (result && result.success) {
-      setIsLoading(false);
-      onClose(); // закрываем окно при успехе
-      setEmail('');
-      setPassword('');
     }
   };
 
@@ -43,13 +47,13 @@ const LoginModal = ({ isOpen, onClose, onLogin }) => {
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>
-              <i className="fas fa-envelope"></i> Email
+              <i className="fas fa-user"></i> Имя пользователя
             </label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="example@dnd.com"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="your_username"
               required
               autoFocus
             />

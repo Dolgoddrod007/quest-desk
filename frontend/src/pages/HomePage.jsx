@@ -1,70 +1,70 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useCampaigns } from '../hooks/useApi';
+import axiosInstance from '../api/axiosInstance';
 
 const HomePage = () => {
   const { currentUser } = useAuth();
-  const [parties, setParties] = useState([]);
+  const { campaigns, fetchCampaigns, createCampaign } = useCampaigns();
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showJoinModal, setShowJoinModal] = useState(false);
-  const [joinCode, setJoinCode] = useState('');
   const [newPartyName, setNewPartyName] = useState('');
   const [newPartyDesc, setNewPartyDesc] = useState('');
-  
-  // Персонаж (пример)
-  const [character] = useState({
-    name: 'Брунор Железнорук',
-    level: 3,
-    attributes: { сила: 16, ловкость: 12, телосложение: 15, интеллект: 10, мудрость: 14, харизма: 8 }
-  });
+  const [scheduledSessions, setScheduledSessions] = useState([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem('dnd_parties');
-    if (saved) {
-      setParties(JSON.parse(saved));
-    } else {
-      const defaultParties = [
-        { id: 1, name: 'Подземье Фандалина', desc: 'Поиски рудника', master: 'master@dnd.com', members: 4, inviteCode: 'FAN123' },
-        { id: 2, name: 'Врата Балдура', desc: 'Тени в порту', master: 'admin@camp.ru', members: 5, inviteCode: 'BALDUR' }
-      ];
-      setParties(defaultParties);
-      localStorage.setItem('dnd_parties', JSON.stringify(defaultParties));
-    }
+    fetchCampaigns();
   }, []);
 
-  const calcMod = (score) => Math.floor((score - 10) / 2);
+  useEffect(() => {
+    const fetchScheduledSessions = async () => {
+      if (!Array.isArray(campaigns) || campaigns.length === 0) {
+        setScheduledSessions([]);
+        return;
+      }
 
-  const createParty = () => {
-    if (!newPartyName.trim()) return;
-    const newParty = {
-      id: Date.now(),
-      name: newPartyName,
-      desc: newPartyDesc || 'Новая партия',
-      master: currentUser?.email || 'Мастер',
-      members: 1,
-      inviteCode: Math.random().toString(36).substring(2, 8).toUpperCase()
+      setSessionsLoading(true);
+      try {
+        const responses = await Promise.all(
+          campaigns.map((campaign) => axiosInstance.get(`/sessions/?campaign_id=${campaign.id}`))
+        );
+
+        const allSessions = responses.flatMap((response, index) => {
+          const data = Array.isArray(response.data) ? response.data : (response.data?.results || []);
+          return data.map((session) => ({
+            ...session,
+            campaignName: campaigns[index]?.name || 'Кампания',
+          }));
+        });
+
+        const upcoming = allSessions
+          .filter((session) => session.status === 'scheduled')
+          .sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+
+        setScheduledSessions(upcoming);
+      } catch (err) {
+        console.error('Ошибка загрузки сессий:', err);
+        setScheduledSessions([]);
+      } finally {
+        setSessionsLoading(false);
+      }
     };
-    const updated = [...parties, newParty];
-    setParties(updated);
-    localStorage.setItem('dnd_parties', JSON.stringify(updated));
+
+    fetchScheduledSessions();
+  }, [campaigns]);
+
+  const createParty = async () => {
+    if (currentUser?.role !== 'master') return;
+    if (!newPartyName.trim()) return;
+    await createCampaign({
+      name: newPartyName,
+      description: newPartyDesc || '',
+      master_id: currentUser?.id,
+    });
+    fetchCampaigns();
     setShowCreateModal(false);
     setNewPartyName('');
     setNewPartyDesc('');
-  };
-
-  const joinParty = () => {
-    const party = parties.find(p => p.inviteCode === joinCode.toUpperCase());
-    if (party) {
-      alert(`Вы присоединились к партии "${party.name}"`);
-      const updated = parties.map(p =>
-        p.id === party.id ? { ...p, members: p.members + 1 } : p
-      );
-      setParties(updated);
-      localStorage.setItem('dnd_parties', JSON.stringify(updated));
-      setJoinCode('');
-      setShowJoinModal(false);
-    } else {
-      alert('Неверный код приглашения');
-    }
   };
 
   const copyInvite = (code) => {
@@ -100,34 +100,34 @@ const HomePage = () => {
     <>
       <div className="section-header">
         <h2>Ваши партии</h2>
-        <button
-          style={{ background: '#2a9d8f', color: '#0c1a1f', border: 'none', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer' }}
-          onClick={() => setShowCreateModal(true)}
-        >
-          <i className="fas fa-plus"></i> Создать партию
-        </button>
+        {currentUser?.role === 'master' ? (
+          <button
+            style={{ background: '#2a9d8f', color: '#0c1a1f', border: 'none', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer' }}
+            onClick={() => setShowCreateModal(true)}
+          >
+            <i className="fas fa-plus"></i> Создать партию
+          </button>
+        ) : (
+          <span style={{ color: '#999', fontSize: '0.9rem' }}>
+            Игроки не могут создавать партии
+          </span>
+        )}
       </div>
 
       <div className="grid-2">
-        {parties.map(party => (
+        {campaigns.map(party => (
           <div key={party.id} className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span><strong>{party.name}</strong></span>
               <i className="fas fa-users"></i>
             </div>
-            <p>{party.desc} · участников: {party.members}</p>
+            <p>{party.description || 'Без описания'} · участников: {party.members?.length || 0}</p>
             <div style={{ display: 'flex', gap: '0.6rem', marginTop: '1rem' }}>
               <button
                 style={{ background: '#2d4b5a', color: 'white', border: '1px solid #3e6a7c', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer' }}
-                onClick={() => copyInvite(party.inviteCode)}
+                onClick={() => copyInvite(party.invite_code)}
               >
                 <i className="fas fa-link"></i> ссылка
-              </button>
-              <button
-                style={{ background: '#2a9d8f', color: '#0c1a1f', border: 'none', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer' }}
-                onClick={() => setShowJoinModal(true)}
-              >
-                <i className="fas fa-sign-in-alt"></i> войти
               </button>
             </div>
           </div>
@@ -135,47 +135,31 @@ const HomePage = () => {
       </div>
 
       <div className="section-header">
-        <h3>Лист персонажа (D&D 5e)</h3>
+        <h4>Ближайшие сессии</h4>
       </div>
 
-      <div className="card">
-        <div><strong>{character.name}</strong> (ур. {character.level})</div>
-        <div className="attr-strip">
-          {Object.entries(character.attributes).map(([attr, val]) => {
-            const mod = calcMod(val);
-            return (
-              <span key={attr} className="attr-pill">
-                {attr.slice(0, 3).toUpperCase()} {val} ({mod >= 0 ? '+' : ''}{mod})
-              </span>
-            );
-          })}
+      {sessionsLoading ? (
+        <div className="card">Загрузка сессий...</div>
+      ) : scheduledSessions.length === 0 ? (
+        <div className="card" style={{ color: '#9ab3d0' }}>
+          Запланированных сессий пока нет
         </div>
-      </div>
-
-      <div className="section-header">
-        <h3>Активные квесты</h3>
-      </div>
-
-      <div className="grid-2">
-        <div className="card">
-          <i className="fas fa-scroll" style={{ color: '#2a9d8f' }}></i> Пропавший рудник — активно
+      ) : (
+        <div className="grid-2">
+          {scheduledSessions.map((session) => (
+            <div key={session.id} className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                <strong>{session.title}</strong>
+                <i className="fas fa-calendar-check" style={{ color: '#2a9d8f' }}></i>
+              </div>
+              <div style={{ color: '#9ab3d0' }}>
+                <div><strong>Кампания:</strong> {session.campaignName}</div>
+                <div><strong>Дата:</strong> {new Date(session.start_time).toLocaleString('ru-RU')}</div>
+              </div>
+            </div>
+          ))}
         </div>
-        <div className="card">
-          <i className="fas fa-user-tie" style={{ color: '#2a9d8f' }}></i> NPC: Король Бурлейн
-        </div>
-      </div>
-
-      <div className="card" style={{ background: '#1f293f', borderLeft: '5px solid #aa4a4a' }}>
-        <span>🔒 Скрытые заметки мастера: дракон дружелюбен</span>
-      </div>
-
-      <div className="section-header">
-        <h4>Ближайшая сессия</h4>
-      </div>
-
-      <div className="card">
-        📅 15.04 19:00 (доступны 3/4) <i className="fas fa-check-circle" style={{ color: '#2a9d8f' }}></i>
-      </div>
+      )}
 
       {/* Кастомная модалка создания партии */}
       {showCreateModal && (
@@ -204,35 +188,6 @@ const HomePage = () => {
             </button>
             <button
               onClick={() => setShowCreateModal(false)}
-              style={{ marginTop: '1rem', background: 'transparent', border: '1px solid #2a9d8f', color: '#c6edff', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer', width: '100%' }}
-            >
-              Отмена
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Кастомная модалка вступления */}
-      {showJoinModal && (
-        <div style={modalOverlayStyle} onClick={() => setShowJoinModal(false)}>
-          <div style={modalCardStyle} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginBottom: '1.5rem', color: '#6ec8e0' }}>Вступить в партию</h3>
-            <label>Введите код-приглашение</label>
-            <input
-              type="text"
-              placeholder="Например: FAN123"
-              value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value)}
-              style={{ width: '100%', marginBottom: '1rem', padding: '0.5rem', borderRadius: '8px', background: '#0f1a27', border: '1px solid #2a9d8f', color: 'white' }}
-            />
-            <button
-              onClick={joinParty}
-              style={{ background: '#2a9d8f', color: '#0c1a1f', border: 'none', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer', width: '100%' }}
-            >
-              Присоединиться
-            </button>
-            <button
-              onClick={() => setShowJoinModal(false)}
               style={{ marginTop: '1rem', background: 'transparent', border: '1px solid #2a9d8f', color: '#c6edff', padding: '0.5rem 1.2rem', borderRadius: '40px', cursor: 'pointer', width: '100%' }}
             >
               Отмена
