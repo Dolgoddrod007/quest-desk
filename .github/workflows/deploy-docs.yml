@@ -3,7 +3,6 @@ name: Deploy Docs to GitHub Pages
 on:
   push:
     branches: [main]
-    # (рекомендуется) запускать только при изменениях в папке с документацией
     paths:
       - 'doc/**'
 
@@ -22,7 +21,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
 
       - name: Install dependencies
         run: npm ci
