@@ -1,0 +1,1 @@
+"use strict";(globalThis.webpackChunkdoc=globalThis.webpackChunkdoc||[]).push([[8796],{1871(s){s.exports=JSON.parse('{"name":"docusaurus-plugin-redoc","id":"quest-desk-api"}')}}]);

@@ -1,0 +1,376 @@
+openapi: 3.0.3
+info:
+  title: Quest Desk API
+  version: 1.0.0
+  description: Спецификация описывает только endpoints и модели, которые на странице "/" и "/parties"
+  
+servers:
+  - url: http://localhost:8080
+
+tags:
+  - name: Users
+  - name: Campaigns
+  - name: Sessions
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    UserRole:
+      type: string
+      enum: [player, master]
+
+    CampaihnRole:
+      type: string
+      enum: [player, master]
+
+    SessionStatus:
+      type: string
+      enum: [scheduled, completed, cancelled]
+
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        campaign:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        start_time:
+          type: string
+          format: date-time
+        duration_minutes:
+          type: integer
+          nullable: true
+        status:
+          $ref: '#/components/schemas/SessionStatus'
+        availabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionAvailability'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    SessionAvailability:
+      type: object
+      properties:
+        session:
+          type: string
+          format: uuid
+        user:
+          $ref: '#/components/schemas/User'
+
+    UserReqisterRequest:
+      type: object
+      required:
+        - username
+        - email
+        - password
+        - password_confirm
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        password_confirm:
+          type: string
+          format: password
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+    
+    CampaignCreateRequest:
+      type: object
+      required:
+        - name
+        - master_id
+      properties:
+        name:
+          type: string
+          minLength: 3
+          maxLength: 50
+        description:
+          type: string
+          nullable: true
+        master_id:
+          type: string
+          format: uuid
+    
+    JoinCampaignRequest:
+      type: object
+      required:
+        - campaign_id
+        - invite_code
+      properties:
+        campaign_id:
+          type: string
+          format: uuid
+        invite_code:
+          type: string
+          minLength: 6
+          maxLength: 50
+          example: abc123xyz789
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/UserRole'
+        avatar_url:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    Campaign:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        invite_code:
+          type: string
+          readOnly: true
+        master:
+          $ref: '#/components/schemas/User'
+        master_id:
+          type: string
+          format: uuid
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/CampaignMember'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+
+    CampaignRole:
+      type: string
+      enum: [player, master]
+
+    CampaignMember:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user:
+          $ref: '#/components/schemas/User'
+        role:
+          $ref: '#/components/schemas/CampaignRole'
+        joined_at:
+          type: string
+          format: date-time
+          readOnly: true 
+
+
+    PaginatedCampaigns:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: string
+          format: uri
+          nullable: true
+        previous:
+          type: string
+          format: uri
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Campaign'
+
+    SuccessResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+
+
+paths:
+  /users/me/:
+    get:
+      tags: [Users]
+      summary: Получить информацию о текущем пользователе
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Успешный ответ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Неавторизованный
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /cmpaings/:
+    get:
+      tags: [Campaigns]
+      summary: Получить список всех кампаний
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: массив комапаний пользователя
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Campaign'
+        '401':
+          description: Неавторизованный
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [Campaigns]
+      summary: Создать новую кампанию
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampaignCreateRequest'
+      responses:
+        '201':
+          description: Кампания создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '400':
+          description: Некорректные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Неавторизованный, только мастер может создавать
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /campaings/all:
+    get:
+      tags: [Campaigns]
+      summary: Получить список всех кампаний
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+      responses:
+        '200':
+          description: массив  всех комапаний
+          content:
+            application/json:
+              schema:
+                  $ref: '#/components/schemas/PaginatedCampaigns'
+  /campaings/join-by-code:
+    post:
+      tags: [Campaigns]
+      summary: Присоединиться к кампании по коду
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinCampaignRequest'
+      responses:
+        '200':
+          description: Успешное присоединение
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: невалидные параметры
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /sessions/:
+    get:
+      tags: [Sessions]
+      summary: Получить список всех сессий
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: campaign_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: массив сессий 
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Session'
+        '400':
+          description: campaign_id не предоставлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        

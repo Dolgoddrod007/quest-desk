@@ -1,0 +1,184 @@
+asyncapi: 3.1.0
+
+info:
+  title: Quest Desk Notification Service
+  version: 1.0.0
+  description: |
+    Асинхронная система отправки уведомлений об игровых сессиях.
+
+servers:
+  rabbitmq:
+    host: 'rabbitmq:5672'
+    protocol: amqp
+    security:
+      - $ref: '#/components/securitySchemes/userPassword'
+
+defaultContentType: application/json
+
+channels:
+  session.notifications:
+    address: 'session.notifications'
+    description: |
+      Персистентная очередь для задач отправки email-уведомлений.
+    
+    messages:
+      sessionCreated:
+        $ref: '#/components/messages/SessionCreatedMessage'
+    
+    bindings:
+      amqp:
+        is: queue
+        queue:
+          name: session.notifications
+          durable: true
+          exclusive: false
+          autoDelete: false
+          vhost: '/'
+
+operations:
+  publishSessionCreated:
+    action: send
+    channel:
+      $ref: '#/channels/session.notifications'
+    
+    title: Публикация события о новой сессии
+    summary: |
+      Django API публикует в RabbitMQ после успешного добавления в таблицу sessions (UC-06, шаг 5 - 6). Сразу после HTTP 201 Created, чтобы не блокировать ответ мастеру.
+    
+    messages:
+      - $ref: '#/channels/session.notifications/messages/sessionCreated'
+
+  consumeSessionCreated:
+    action: receive
+    channel:
+      $ref: '#/channels/session.notifications'
+    
+    title: Получение события для отправки email
+    summary: |
+      Celery Worker получает событие из очереди, парсит и отправляет email каждому игроку через SMTP.
+      
+      Гарантии:
+      - At-least-once delivery
+      - Автоматический retry при сбое SMTP
+    
+    messages:
+      - $ref: '#/channels/session.notifications/messages/sessionCreated'
+
+components:
+  messages:
+    SessionCreatedMessage:
+      contentType: application/json
+      
+      summary: Уведомление о создании новой игровой сессии.
+      
+      description: |
+        Содержит все данные, необходимые для формирования и отправки
+        email-уведомления игроку, включая метаданные для логирования (NFR-012).
+      
+      headers:
+        type: object
+        properties:
+          event_id:
+            type: string
+            format: uuid
+          
+          timestamp:
+            type: string
+            format: date-time
+          
+          source:
+            type: string
+            description: Источник события (для аудита).
+            example: api.sessions.create
+        
+        required:
+          - event_id
+          - timestamp
+          - source
+      
+      payload:
+        $ref: '#/components/schemas/SessionNotificationPayload'
+
+  schemas:
+    SessionNotificationPayload:
+      type: object
+      title: Данные сессии для уведомления
+      
+      required:
+        - session_id
+        - campaign_id
+        - campaign_name
+        - title
+        - start_time
+        - duration_minutes
+        - recipients
+        - master_name
+      
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          description: PK таблицы sessions.
+        
+        campaign_id:
+          type: string
+          format: uuid
+          description: FK на таблицу campaigns
+        
+        campaign_name:
+          type: string
+          maxLength: 50
+        
+        title:
+          type: string
+          maxLength: 255
+          description: |
+            Тема/описание сессии 
+
+        start_time:
+          type: string
+          format: date-time
+          description: |
+            Дата и время начала.
+        
+        duration_minutes:
+          type: integer
+        
+        recipients:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: |
+            Список email-адресов игроков
+          items:
+            type: string
+            format: email
+        
+        master_name:
+          type: string
+          maxLength: 30
+          description: |
+            Никнейм мастера (из таблицы users)
+        
+        master_email:
+          type: string
+          format: email
+          description: |
+            Опционально: может быть добавлена "Reply-To" в SMTP-заголовки.
+        
+        campaign_invite_link:
+          type: string
+          format: uri
+          description: |
+            Опциональная ссылка на партию в системе.
+            Может быть включена в письмо для быстрого доступа.
+
+
+  securitySchemes:
+    userPassword:
+      type: userPassword
+      description: |
+        учётные данные для подключения к RabbitMQ.
+        Задаются через переменные окружения:
+        - RABBITMQ_USER
+        - RABBITMQ_PASSWORD
