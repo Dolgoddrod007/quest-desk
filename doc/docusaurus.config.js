@@ -14,7 +14,7 @@ const config = {
   url: 'https://Dolgoddrod007.github.io',
   baseUrl: 'https://github.com/Dolgoddrod007/quest-desk.git',
   organizationName: 'Dolgoddrod007', // Usually your GitHub org/user name.
-  projectName: 'quest-desk', // Usually your repo name.
+  projectName: '/quest-desk/', // Usually your repo name.
   onBrokenLinks: 'warn',
   onBrokenMarkdownLinks: 'warn',
   trailingSlash: false,
