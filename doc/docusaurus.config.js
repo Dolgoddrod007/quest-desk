@@ -12,9 +12,9 @@ import {themes as prismThemes} from 'prism-react-renderer';
 const config = {
   title: 'Quest Desk — Техническая документация', 
   url: 'https://Dolgoddrod007.github.io',
-  baseUrl: 'https://github.com/Dolgoddrod007/quest-desk.git',
+  baseUrl: '/quest-desk/',
   organizationName: 'Dolgoddrod007', // Usually your GitHub org/user name.
-  projectName: '/quest-desk/', // Usually your repo name.
+  projectName: 'quest-desk', // Usually your repo name.
   onBrokenLinks: 'warn',
   onBrokenMarkdownLinks: 'warn',
   trailingSlash: false,
