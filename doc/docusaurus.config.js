@@ -10,7 +10,7 @@ import {themes as prismThemes} from 'prism-react-renderer';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'Quest Desk — Техническая документация',
+  title: 'Quest Desk — Техническая документация', 
   url: 'https://Dolgoddrod007.github.io',
   baseUrl: 'https://github.com/Dolgoddrod007/quest-desk.git',
   organizationName: 'Dolgoddrod007', // Usually your GitHub org/user name.
