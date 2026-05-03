@@ -18,18 +18,8 @@ export const AuthProvider = ({ children }) => {
       if (accessToken && !currentUser) {
         setLoading(true);
         try {
-          try {
-            const response = await axiosInstance.get('/users/me/');
-            setCurrentUser(response.data);
-          } catch (primaryErr) {
-            // Backward compatibility if backend still exposes old route.
-            if (primaryErr.response?.status === 404) {
-              const fallbackResponse = await axiosInstance.get('/auth/me/');
-              setCurrentUser(fallbackResponse.data);
-            } else {
-              throw primaryErr;
-            }
-          }
+          const response = await axiosInstance.get('/users/me/');
+          setCurrentUser(response.data);
         } catch (err) {
           console.error('Ошибка загрузки пользователя:', err);
           localStorage.removeItem('access_token');
